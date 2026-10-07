@@ -60,8 +60,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 // ---- Supabase configuration (anon/public key only; never use the service_role key here) ----
-const SUPABASE_URL = "https://YOUR_PROJECT_REF.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_PUBLIC_KEY";
+const SUPABASE_URL = "https://mmbobpajpiqisooivvti.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_76TKbbcCJUNIR4tr7DokdQ_pOqvaP-A";
 const configured = !SUPABASE_URL.includes("YOUR_PROJECT_REF") && !SUPABASE_ANON_KEY.startsWith("YOUR_") && !!window.supabase;
 const sb = configured ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
