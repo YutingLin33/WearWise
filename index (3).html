@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WearWise</title>
+<style>
+:root{--bg:#f4f7f5;--card:#fff;--text:#1c2b24;--muted:#5d6f66;--brand:#2f7d5b;--brand-d:#245f46;--line:#dbe5df;--danger:#c0392b;--soft:#e6f2ec}
+@media(prefers-color-scheme:dark){:root{--bg:#111815;--card:#1a2420;--text:#e8f1ec;--muted:#9bb0a5;--brand:#4fb086;--brand-d:#6fc9a1;--line:#2c3a34;--danger:#e57366;--soft:#223a2f}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+.wrap{max-width:860px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+h1{margin:0;font-size:1.6rem;color:var(--brand)}
+h2{font-size:1.1rem;margin:0 0 12px}
+.tag{color:var(--muted);font-size:.9rem;margin:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat{background:var(--soft);border-radius:12px;padding:12px;text-align:center}
+.stat b{display:block;font-size:1.5rem}
+.stat span{font-size:.8rem;color:var(--muted)}
+.insight{border-left:4px solid var(--brand);background:var(--soft);padding:12px 14px;border-radius:8px;margin-top:12px}
+label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:4px}
+input,select,button{font:inherit}
+input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--text)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.full{grid-column:1/-1}
+button{cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--text);padding:9px 14px;border-radius:10px}
+button.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+button.primary:hover{background:var(--brand-d)}
+button.danger{color:var(--danger)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--brand);outline-offset:1px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.item{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.meta{color:var(--muted);font-size:.85rem}
+.badge{display:inline-block;font-size:.72rem;padding:2px 8px;border-radius:99px;background:var(--soft);color:var(--brand-d);margin-left:6px}
+.cpw{font-weight:700;color:var(--brand-d)}
+.empty{color:var(--muted);text-align:center;padding:20px 0}
+.note{font-size:.8rem;color:var(--muted)}
+.error{color:var(--danger);min-height:1.3em;margin:10px 0 0;font-size:.9rem}
+.proto{background:var(--soft);border-radius:10px;padding:10px 12px;font-size:.82rem;color:var(--muted);margin-top:16px}
+.util{margin-top:14px;background:var(--soft);border-radius:12px;padding:14px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.util-pct{font-size:2.4rem;font-weight:800;color:var(--brand-d);line-height:1}
+.util-pct small{display:block;font-size:.75rem;font-weight:600;color:var(--muted);margin-top:4px}
+.util-txt{flex:1;min-width:200px}
+.util-txt p{margin:0}
+.revisit{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+.revisit h3{margin:0 0 6px;font-size:1rem}
+.rv-item{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);font-size:.92rem}
+.rv-item:first-of-type{border-top:0}
+.link{background:none;border:0;color:var(--brand-d);text-decoration:underline;padding:0}
+@media(max-width:560px){.grid{grid-template-columns:1fr}.stats{gap:6px}.stat b{font-size:1.2rem}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+const KEY = "wearwise:v2";
+const CATS = ["Tops","Bottoms","Dresses","Outerwear","Shoes","Accessories","Activewear","Other"];
+let state = load();
+let editingId = null;
+let authMode = "login";
+let authError = "";
+
+function load(){
+  try{
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if(s && s.accounts) return s;
+  }catch(e){}
+  return {accounts:{}, current:null};
+}
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(state)); }
+  catch(e){ alert("Could not save data. Your browser may be blocking local storage."); }
+}
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const money = n => "$"+n.toFixed(2);
+const el = (tag, props={}, ...kids) => {
+  const e = document.createElement(tag);
+  for(const k in props){
+    if(k==="class") e.className=props[k];
+    else if(k.startsWith("on")) e.addEventListener(k.slice(2), props[k]);
+    else if(k==="text") e.textContent=props[k];
+    else e.setAttribute(k, props[k]);
+  }
+  kids.flat().forEach(c => e.append(c));
+  return e;
+};
+const profile = () => state.accounts[state.current];
+
+// Prototype only: salted SHA-256 where available. Not secure production authentication.
+async function hashPw(pw, salt, forceFallback){
+  try{
+    if(!forceFallback && window.crypto && crypto.subtle){
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt+pw));
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+    }
+  }catch(e){}
+  let h = 5381; const str = salt+pw;
+  for(let i=0;i<str.length;i++) h = ((h<<5)+h+str.charCodeAt(i))|0;
+  return "w"+(h>>>0).toString(16);
+}
+
+function cpw(item){
+  return item.wears > 0 ? item.price/item.wears : null;
+}
+
+function insight(items){
+  if(!items.length) return "Add your first item to see an insight based on your own wardrobe.";
+  const unworn = items.filter(i=>i.wears===0);
+  const low = items.filter(i=>i.wears>0 && i.wears<3);
+  const used = items.filter(i=>i.wears>0);
+  const second = items.filter(i=>i.condition==="Secondhand").length;
+  const parts = [];
+  if(unworn.length){
+    const spent = unworn.reduce((a,i)=>a+i.price,0);
+    parts.push(`${unworn.length} of your ${items.length} items haven't been worn yet (${money(spent)} spent). Wearing one this week would start lowering its cost per wear.`);
+  } else if(low.length){
+    parts.push(`${low.length} item${low.length>1?"s have":" has"} been worn fewer than 3 times. Re-wearing ${low.length>1?"them":"it"} is an easy way to get more value from what you own.`);
+  } else {
+    parts.push("Every item you've logged has been worn at least 3 times. Nice job getting use out of your clothes.");
+  }
+  if(used.length){
+    const best = used.reduce((a,b)=>cpw(a)<cpw(b)?a:b);
+    parts.push(`Your lowest cost per wear is ${best.name} at ${money(cpw(best))}.`);
+  }
+  if(second) parts.push(`${second} of your ${items.length} items (${Math.round(second/items.length*100)}%) were bought secondhand.`);
+  return parts.join(" ");
+}
+
+function render(){
+  const app = document.getElementById("app");
+  app.replaceChildren();
+  app.append(el("header",{},
+    el("div",{}, el("h1",{text:"WearWise"}), el("p",{class:"tag",text:"Wear more of what you already own."}))
+  ));
+  if(!state.current || !profile()){ app.append(authScreen()); return; }
+  app.append(accountBar(), dashboard(), formCard(), listCard(), el("p",{class:"note",text:"Prototype: accounts and data are saved only in this browser on this device. Clearing site data will remove them."}));
+}
+
+function authScreen(){
+  const creating = authMode==="create";
+  const f = {
+    name: el("input",{id:"aName",maxlength:"30",autocomplete:"name",placeholder:"Your name"}),
+    email: el("input",{id:"aEmail",type:"email",autocomplete:"email",placeholder:"you@school.edu"}),
+    pw: el("input",{id:"aPw",type:"password",autocomplete:creating?"new-password":"current-password"}),
+    pw2: el("input",{id:"aPw2",type:"password",autocomplete:"new-password"})
+  };
+  const err = el("p",{class:"error",role:"alert",text:authError});
+  const fail = m => { authError = m; err.textContent = m; };
+  const field = (id,label,input) => el("div",{class:"full"}, el("label",{for:id,text:label}), input);
+  const form = el("form",{novalidate:""},
+    el("div",{class:"grid"},
+      creating ? field("aName","Name",f.name) : "",
+      field("aEmail","Email",f.email),
+      field("aPw","Password",f.pw),
+      creating ? field("aPw2","Confirm password",f.pw2) : ""
+    ),
+    err,
+    el("div",{class:"row",style:"margin-top:12px"},
+      el("button",{class:"primary",type:"submit",text:creating?"Create account":"Log in"}))
+  );
+  form.addEventListener("submit", async e=>{
+    e.preventDefault();
+    const email = f.email.value.trim().toLowerCase(), pw = f.pw.value;
+    if(!/^\S+@\S+\.\S+$/.test(email)) return fail("Please enter a valid email address.");
+    if(creating){
+      const name = f.name.value.trim();
+      if(!name) return fail("Please enter your name.");
+      if(pw.length<6) return fail("Password must be at least 6 characters.");
+      if(pw!==f.pw2.value) return fail("Passwords do not match.");
+      if(Object.values(state.accounts).some(a=>a.email===email)) return fail("An account with that email already exists. Try logging in.");
+      const salt = uid()+uid();
+      const hash = await hashPw(pw,salt);
+      const id = uid();
+      state.accounts[id] = {name,email,salt,hash,items:[]};
+      state.current = id;
+    } else {
+      const found = Object.entries(state.accounts).find(([,a])=>a.email===email);
+      const ok = found && (await hashPw(pw,found[1].salt,found[1].hash.startsWith("w"))) === found[1].hash;
+      if(!ok) return fail("Incorrect email or password.");
+      state.current = found[0];
+    }
+    authError = ""; editingId = null; save(); render();
+  });
+  const switchBtn = el("button",{type:"button",class:"link",text:creating?"Log in":"Create Account",onclick:()=>{
+    authMode = creating?"login":"create"; authError=""; render();
+  }});
+  return el("div",{class:"card"},
+    el("h2",{text:creating?"Create your account":"Log in to WearWise"}),
+    form,
+    el("p",{class:"note",style:"margin-top:14px"}, creating?"Already have an account? ":"Don't have an account? ", switchBtn),
+    el("div",{class:"proto",text:"Classroom prototype: accounts and clothing data are stored only in this browser (localStorage), with no server. This is not secure authentication, so please don't use a real or reused password."})
+  );
+}
+
+function accountBar(){
+  const a = profile();
+  return el("div",{class:"card row",style:"justify-content:space-between"},
+    el("div",{}, el("strong",{text:a.name}), el("div",{class:"meta",text:a.email})),
+    el("div",{class:"row"},
+      el("button",{text:"Log out",onclick:()=>{ state.current=null; editingId=null; authMode="login"; save(); render(); }}),
+      el("button",{class:"danger",text:"Delete account",onclick:()=>{
+        if(confirm(`Delete the account for "${a.email}" and all of its items? This can't be undone.`)){
+          delete state.accounts[state.current];
+          state.current = null; editingId=null; authMode="login"; save(); render();
+        }
+      }})
+    )
+  );
+}
+
+function utilizationSection(items){
+  const box = el("div",{class:"util"});
+  if(!items.length){
+    box.append(el("div",{class:"util-txt"}, el("strong",{text:"Closet Utilization"}), el("p",{class:"note",text:"Add an item to see how much of your closet you've worn."})));
+    return box;
+  }
+  const total = items.length;
+  const worn = items.filter(i=>i.wears>=1).length;
+  const unworn = total - worn;
+  const pct = Math.round(worn/total*100);
+  const msg = unworn>0
+    ? `${unworn} item${unworn===1?" hasn't":"s haven't"} been worn yet. Try wearing ${unworn===1?"it":"them"} before buying something new.`
+    : "You've worn every item in your closet at least once. Keep making the most of what you own.";
+  box.append(
+    el("div",{class:"util-pct"}, `${pct}%`, el("small",{text:"Closet Utilization"})),
+    el("div",{class:"util-txt"},
+      el("p",{text:`${worn} of ${total} item${total===1?"":"s"} in your closet ${worn===1&&total===1?"has":"have"} been worn at least once.`}),
+      el("p",{class:"note",style:"margin-top:4px",text:msg})
+    )
+  );
+  return box;
+}
+
+function revisitSection(items){
+  if(!items.length) return "";
+  const under = items.filter(i=>i.wears<3).sort((a,b)=>a.wears-b.wears);
+  const box = el("div",{class:"revisit"}, el("h3",{text:"Items to Revisit"}));
+  if(!under.length){
+    box.append(el("p",{class:"note",style:"margin:0",text:"Every item you've logged has been worn at least 3 times. Nice work getting more use out of what you own."}));
+    return box;
+  }
+  const n = under.length;
+  box.append(el("p",{style:"margin:0 0 8px",text:`You have ${n} item${n===1?"":"s"} you've worn fewer than 3 times. Consider getting more use out of what you already own before buying something new.`}));
+  under.forEach(i=>{
+    const c = cpw(i);
+    box.append(el("div",{class:"rv-item"},
+      el("strong",{text:i.name}),
+      el("span",{class:"meta",text:`Worn ${i.wears} time${i.wears===1?"":"s"}${c===null?"":" · "+money(c)+" per wear"}`})
+    ));
+  });
+  return box;
+}
+
+function dashboard(){
+  const items = profile().items;
+  const wears = items.reduce((a,i)=>a+i.wears,0);
+  const spent = items.reduce((a,i)=>a+i.price,0);
+  const avg = wears>0 ? money(spent/wears) : "—";
+  const stat = (v,l)=>el("div",{class:"stat"},el("b",{text:String(v)}),el("span",{text:l}));
+  return el("div",{class:"card"},
+    el("h2",{text:`${profile().name}'s wardrobe`}),
+    el("div",{class:"stats"}, stat(items.length,"Items"), stat(wears,"Total wears"), stat(avg,"Avg cost per wear")),
+    el("p",{class:"note",style:"margin:8px 0 0",text:"Average cost per wear = total spent ÷ total wears."}),
+    utilizationSection(items),
+    el("div",{class:"insight"}, el("strong",{text:"Insight: "}), insight(items)),
+    revisitSection(items)
+  );
+}
+
+function formCard(){
+  const item = editingId ? profile().items.find(i=>i.id===editingId) : null;
+  const f = {
+    name: el("input",{id:"fName",maxlength:"40",required:"",placeholder:"e.g. Black denim jacket"}),
+    cat: el("select",{id:"fCat"}, CATS.map(c=>el("option",{value:c,text:c}))),
+    price: el("input",{id:"fPrice",type:"number",min:"0",step:"0.01",inputmode:"decimal",placeholder:"0.00"}),
+    cond: el("select",{id:"fCond"}, ["New","Secondhand"].map(c=>el("option",{value:c,text:c})))
+  };
+  if(item){ f.name.value=item.name; f.cat.value=item.category; f.price.value=item.price; f.cond.value=item.condition; }
+  const form = el("form",{novalidate:""},
+    el("div",{class:"grid"},
+      el("div",{class:"full"}, el("label",{for:"fName",text:"Item name"}), f.name),
+      el("div",{}, el("label",{for:"fCat",text:"Category"}), f.cat),
+      el("div",{}, el("label",{for:"fPrice",text:"Purchase price ($)"}), f.price),
+      el("div",{class:"full"}, el("label",{for:"fCond",text:"Bought new or secondhand?"}), f.cond)
+    ),
+    el("div",{class:"row",style:"margin-top:14px"},
+      el("button",{class:"primary",type:"submit",text:item?"Save changes":"Add item"}),
+      item ? el("button",{type:"button",text:"Cancel",onclick:()=>{editingId=null;render();}}) : ""
+    )
+  );
+  form.addEventListener("submit",e=>{
+    e.preventDefault();
+    const name = f.name.value.trim();
+    const price = parseFloat(f.price.value);
+    if(!name){ alert("Please enter an item name."); f.name.focus(); return; }
+    if(isNaN(price) || price<0){ alert("Please enter a valid price (0 or more)."); f.price.focus(); return; }
+    if(item){ Object.assign(item,{name,category:f.cat.value,price,condition:f.cond.value}); }
+    else profile().items.push({id:uid(),name,category:f.cat.value,price,condition:f.cond.value,wears:0});
+    editingId=null; save(); render();
+  });
+  return el("div",{class:"card"}, el("h2",{text:item?"Edit item":"Add a clothing item"}), form);
+}
+
+function listCard(){
+  const items = profile().items;
+  const card = el("div",{class:"card"}, el("h2",{text:"Your items"}));
+  if(!items.length){ card.append(el("div",{class:"empty",text:"No items yet. Add something you own to start tracking."})); return card; }
+  [...items].reverse().forEach(i=>{
+    const c = cpw(i);
+    const change = d => { i.wears = Math.max(0,i.wears+d); save(); render(); };
+    card.append(el("div",{class:"item"},
+      el("div",{},
+        el("div",{}, el("strong",{text:i.name}), el("span",{class:"badge",text:i.condition})),
+        el("div",{class:"meta",text:`${i.category} · ${money(i.price)} · worn ${i.wears} time${i.wears===1?"":"s"}`}),
+        el("div",{class:"cpw",text: c===null ? "Not worn yet" : `${money(c)} per wear`})
+      ),
+      el("div",{class:"row"},
+        el("button",{"aria-label":`Remove one wear from ${i.name}`,text:"−",onclick:()=>change(-1)}),
+        el("button",{class:"primary","aria-label":`Add one wear to ${i.name}`,text:"+ Wore it",onclick:()=>change(1)}),
+        el("button",{text:"Edit",onclick:()=>{editingId=i.id;render();window.scrollTo({top:0,behavior:"smooth"});}}),
+        el("button",{class:"danger",text:"Delete",onclick:()=>{
+          if(confirm(`Delete "${i.name}"?`)){ profile().items = profile().items.filter(x=>x.id!==i.id); if(editingId===i.id) editingId=null; save(); render(); }
+        }})
+      )
+    ));
+  });
+  return card;
+}
+
+render();
+</script>
+</body>
+</html>
