@@ -51,31 +51,40 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .rv-item:first-of-type{border-top:0}
 .link{background:none;border:0;color:var(--brand-d);text-decoration:underline;padding:0}
 @media(max-width:560px){.grid{grid-template-columns:1fr}.stats{gap:6px}.stat b{font-size:1.2rem}}
+.banner{display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--card);border:1px solid var(--danger);color:var(--danger);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.9rem}
 </style>
 </head>
 <body>
 <div class="wrap" id="app"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
-const KEY = "wearwise:v2";
+// ---- Supabase configuration (anon/public key only; never use the service_role key here) ----
+const SUPABASE_URL = "https://YOUR_PROJECT_REF.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_PUBLIC_KEY";
+const configured = !SUPABASE_URL.includes("YOUR_PROJECT_REF") && !SUPABASE_ANON_KEY.startsWith("YOUR_") && !!window.supabase;
+const sb = configured ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
 const CATS = ["Tops","Bottoms","Dresses","Outerwear","Shoes","Accessories","Activewear","Other"];
-let state = load();
+let user = null, items = [];
+let loading = true, closetLoading = false;
 let editingId = null;
 let authMode = "login";
-let authError = "";
+let authError = "", authInfo = "", errorMsg = "";
 
-function load(){
-  try{
-    const s = JSON.parse(localStorage.getItem(KEY));
-    if(s && s.accounts) return s;
-  }catch(e){}
-  return {accounts:{}, current:null};
+function showError(msg){ errorMsg = msg; render(); window.scrollTo({top:0,behavior:"smooth"}); }
+const rowToItem = r => ({id:r.id,name:r.name,category:r.category,price:Number(r.price),condition:r.condition,wears:r.wears});
+
+async function loadItems(){
+  const {data,error} = await sb.from("clothing_items").select("*").eq("user_id",user.id).order("created_at",{ascending:true});
+  if(error){ items = []; errorMsg = "Could not load your closet: "+error.message; }
+  else items = data.map(rowToItem);
 }
-function save(){
-  try{ localStorage.setItem(KEY, JSON.stringify(state)); }
-  catch(e){ alert("Could not save data. Your browser may be blocking local storage."); }
+async function startSession(u){
+  user = u; loading = false; closetLoading = true; items = []; render();
+  try{ await loadItems(); }catch(e){ errorMsg = "Could not load your closet: "+(e.message||e); }
+  closetLoading = false; render();
 }
-const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const money = n => "$"+n.toFixed(2);
 const el = (tag, props={}, ...kids) => {
   const e = document.createElement(tag);
@@ -88,20 +97,7 @@ const el = (tag, props={}, ...kids) => {
   kids.flat().forEach(c => e.append(c));
   return e;
 };
-const profile = () => state.accounts[state.current];
-
-// Prototype only: salted SHA-256 where available. Not secure production authentication.
-async function hashPw(pw, salt, forceFallback){
-  try{
-    if(!forceFallback && window.crypto && crypto.subtle){
-      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt+pw));
-      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
-    }
-  }catch(e){}
-  let h = 5381; const str = salt+pw;
-  for(let i=0;i<str.length;i++) h = ((h<<5)+h+str.charCodeAt(i))|0;
-  return "w"+(h>>>0).toString(16);
-}
+const profile = () => user && {name:user.user_metadata?.name||user.email, email:user.email, items};
 
 function cpw(item){
   return item.wears > 0 ? item.price/item.wears : null;
@@ -130,14 +126,24 @@ function insight(items){
   return parts.join(" ");
 }
 
+function loadingCard(text){ return el("div",{class:"card"}, el("p",{class:"empty",role:"status",text})); }
+function setupScreen(){
+  return el("div",{class:"card"}, el("h2",{text:"Supabase setup needed"}),
+    el("p",{text:"Add your Supabase project URL and anon/public key at the top of the script in index.html. If they're set, check that the Supabase library loaded (internet connection)."}));
+}
+
 function render(){
   const app = document.getElementById("app");
   app.replaceChildren();
   app.append(el("header",{},
     el("div",{}, el("h1",{text:"WearWise"}), el("p",{class:"tag",text:"Wear more of what you already own."}))
   ));
-  if(!state.current || !profile()){ app.append(authScreen()); return; }
-  app.append(accountBar(), dashboard(), formCard(), listCard(), el("p",{class:"note",text:"Prototype: accounts and data are saved only in this browser on this device. Clearing site data will remove them."}));
+  if(errorMsg) app.append(el("div",{class:"banner",role:"alert"}, el("span",{text:errorMsg}), el("button",{class:"link",text:"Dismiss",onclick:()=>{errorMsg="";render();}})));
+  if(!configured){ app.append(setupScreen()); return; }
+  if(loading){ app.append(loadingCard("Loading…")); return; }
+  if(!user){ app.append(authScreen()); return; }
+  if(closetLoading){ app.append(loadingCard("Loading your closet…")); return; }
+  app.append(accountBar(), dashboard(), formCard(), listCard(), el("p",{class:"note",text:"Your closet is saved to your account and syncs across your devices."}));
 }
 
 function authScreen(){
@@ -148,8 +154,8 @@ function authScreen(){
     pw: el("input",{id:"aPw",type:"password",autocomplete:creating?"new-password":"current-password"}),
     pw2: el("input",{id:"aPw2",type:"password",autocomplete:"new-password"})
   };
-  const err = el("p",{class:"error",role:"alert",text:authError});
-  const fail = m => { authError = m; err.textContent = m; };
+  const err = el("p",{class:authError?"error":"note",role:"alert",text:authError||authInfo});
+  const fail = m => { authError = m; err.className = m?"error":"note"; err.textContent = m; };
   const field = (id,label,input) => el("div",{class:"full"}, el("label",{for:id,text:label}), input);
   const form = el("form",{novalidate:""},
     el("div",{class:"grid"},
@@ -164,35 +170,42 @@ function authScreen(){
   );
   form.addEventListener("submit", async e=>{
     e.preventDefault();
+    const btn = form.querySelector("button[type=submit]");
     const email = f.email.value.trim().toLowerCase(), pw = f.pw.value;
+    let name = "";
     if(!/^\S+@\S+\.\S+$/.test(email)) return fail("Please enter a valid email address.");
     if(creating){
-      const name = f.name.value.trim();
+      name = f.name.value.trim();
       if(!name) return fail("Please enter your name.");
       if(pw.length<6) return fail("Password must be at least 6 characters.");
       if(pw!==f.pw2.value) return fail("Passwords do not match.");
-      if(Object.values(state.accounts).some(a=>a.email===email)) return fail("An account with that email already exists. Try logging in.");
-      const salt = uid()+uid();
-      const hash = await hashPw(pw,salt);
-      const id = uid();
-      state.accounts[id] = {name,email,salt,hash,items:[]};
-      state.current = id;
-    } else {
-      const found = Object.entries(state.accounts).find(([,a])=>a.email===email);
-      const ok = found && (await hashPw(pw,found[1].salt,found[1].hash.startsWith("w"))) === found[1].hash;
-      if(!ok) return fail("Incorrect email or password.");
-      state.current = found[0];
+    } else if(!pw) return fail("Please enter your password.");
+    fail(""); authInfo = "";
+    btn.disabled = true; btn.textContent = "Please wait…";
+    try{
+      const res = creating
+        ? await sb.auth.signUp({email,password:pw,options:{data:{name}}})
+        : await sb.auth.signInWithPassword({email,password:pw});
+      if(res.error) throw res.error;
+      if(!res.data.session){
+        authMode = "login"; authInfo = "Account created. Check your email to confirm your address, then log in.";
+        render(); return;
+      }
+      editingId = null; errorMsg = "";
+      await startSession(res.data.session.user);
+    }catch(err){
+      btn.disabled = false; btn.textContent = creating?"Create account":"Log in";
+      fail(err.message || "Something went wrong. Please try again.");
     }
-    authError = ""; editingId = null; save(); render();
   });
   const switchBtn = el("button",{type:"button",class:"link",text:creating?"Log in":"Create Account",onclick:()=>{
-    authMode = creating?"login":"create"; authError=""; render();
+    authMode = creating?"login":"create"; authError=""; authInfo=""; render();
   }});
   return el("div",{class:"card"},
     el("h2",{text:creating?"Create your account":"Log in to WearWise"}),
     form,
     el("p",{class:"note",style:"margin-top:14px"}, creating?"Already have an account? ":"Don't have an account? ", switchBtn),
-    el("div",{class:"proto",text:"Classroom prototype: accounts and clothing data are stored only in this browser (localStorage), with no server. This is not secure authentication, so please don't use a real or reused password."})
+    el("div",{class:"proto",text:"Your account is handled by Supabase Authentication, and your closet is stored in the cloud so it syncs across your devices."})
   );
 }
 
@@ -200,15 +213,11 @@ function accountBar(){
   const a = profile();
   return el("div",{class:"card row",style:"justify-content:space-between"},
     el("div",{}, el("strong",{text:a.name}), el("div",{class:"meta",text:a.email})),
-    el("div",{class:"row"},
-      el("button",{text:"Log out",onclick:()=>{ state.current=null; editingId=null; authMode="login"; save(); render(); }}),
-      el("button",{class:"danger",text:"Delete account",onclick:()=>{
-        if(confirm(`Delete the account for "${a.email}" and all of its items? This can't be undone.`)){
-          delete state.accounts[state.current];
-          state.current = null; editingId=null; authMode="login"; save(); render();
-        }
-      }})
-    )
+    el("button",{text:"Log out",onclick:async()=>{
+      const {error} = await sb.auth.signOut();
+      if(error){ showError("Could not log out: "+error.message); return; }
+      user = null; items = []; editingId = null; authMode = "login"; errorMsg = ""; render();
+    }})
   );
 }
 
@@ -292,15 +301,30 @@ function formCard(){
       item ? el("button",{type:"button",text:"Cancel",onclick:()=>{editingId=null;render();}}) : ""
     )
   );
-  form.addEventListener("submit",e=>{
+  form.addEventListener("submit", async e=>{
     e.preventDefault();
     const name = f.name.value.trim();
     const price = parseFloat(f.price.value);
     if(!name){ alert("Please enter an item name."); f.name.focus(); return; }
     if(isNaN(price) || price<0){ alert("Please enter a valid price (0 or more)."); f.price.focus(); return; }
-    if(item){ Object.assign(item,{name,category:f.cat.value,price,condition:f.cond.value}); }
-    else profile().items.push({id:uid(),name,category:f.cat.value,price,condition:f.cond.value,wears:0});
-    editingId=null; save(); render();
+    const btn = form.querySelector("button[type=submit]");
+    btn.disabled = true; btn.textContent = "Saving…";
+    const fields = {name,category:f.cat.value,price,condition:f.cond.value};
+    try{
+      if(item){
+        const {data,error} = await sb.from("clothing_items").update(fields).eq("id",item.id).eq("user_id",user.id).select().single();
+        if(error) throw error;
+        Object.assign(item, rowToItem(data));
+      } else {
+        const {data,error} = await sb.from("clothing_items").insert({...fields,wears:0,user_id:user.id}).select().single();
+        if(error) throw error;
+        items.push(rowToItem(data));
+      }
+      editingId = null; errorMsg = ""; render();
+    }catch(err){
+      btn.disabled = false; btn.textContent = item?"Save changes":"Add item";
+      showError(`Could not ${item?"update":"add"} the item: `+(err.message||err));
+    }
   });
   return el("div",{class:"card"}, el("h2",{text:item?"Edit item":"Add a clothing item"}), form);
 }
@@ -311,7 +335,13 @@ function listCard(){
   if(!items.length){ card.append(el("div",{class:"empty",text:"No items yet. Add something you own to start tracking."})); return card; }
   [...items].reverse().forEach(i=>{
     const c = cpw(i);
-    const change = d => { i.wears = Math.max(0,i.wears+d); save(); render(); };
+    const change = async d => {
+      const prev = i.wears, next = Math.max(0,prev+d);
+      if(next===prev) return;
+      i.wears = next; errorMsg = ""; render();
+      const {error} = await sb.from("clothing_items").update({wears:next}).eq("id",i.id).eq("user_id",user.id);
+      if(error){ i.wears = prev; showError("Could not save wear count: "+error.message); }
+    };
     card.append(el("div",{class:"item"},
       el("div",{},
         el("div",{}, el("strong",{text:i.name}), el("span",{class:"badge",text:i.condition})),
@@ -322,8 +352,12 @@ function listCard(){
         el("button",{"aria-label":`Remove one wear from ${i.name}`,text:"−",onclick:()=>change(-1)}),
         el("button",{class:"primary","aria-label":`Add one wear to ${i.name}`,text:"+ Wore it",onclick:()=>change(1)}),
         el("button",{text:"Edit",onclick:()=>{editingId=i.id;render();window.scrollTo({top:0,behavior:"smooth"});}}),
-        el("button",{class:"danger",text:"Delete",onclick:()=>{
-          if(confirm(`Delete "${i.name}"?`)){ profile().items = profile().items.filter(x=>x.id!==i.id); if(editingId===i.id) editingId=null; save(); render(); }
+        el("button",{class:"danger",text:"Delete",onclick:async()=>{
+          if(confirm(`Delete "${i.name}"?`)){
+            const {error} = await sb.from("clothing_items").delete().eq("id",i.id).eq("user_id",user.id);
+            if(error){ showError("Could not delete the item: "+error.message); return; }
+            items = items.filter(x=>x.id!==i.id); if(editingId===i.id) editingId=null; errorMsg=""; render();
+          }
         }})
       )
     ));
@@ -331,7 +365,20 @@ function listCard(){
   return card;
 }
 
-render();
+async function boot(){
+  render();
+  if(!configured) return;
+  try{
+    const {data,error} = await sb.auth.getSession();
+    if(error) throw error;
+    if(data.session) await startSession(data.session.user);
+    else { loading = false; render(); }
+  }catch(e){ loading = false; errorMsg = "Could not check your login: "+(e.message||e); render(); }
+  sb.auth.onAuthStateChange(ev=>{
+    if(ev==="SIGNED_OUT" && user) setTimeout(()=>{ user=null; items=[]; editingId=null; render(); },0);
+  });
+}
+boot();
 </script>
 </body>
 </html>
